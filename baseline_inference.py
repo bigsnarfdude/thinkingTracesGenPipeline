@@ -9,8 +9,8 @@ def setup_base_model():
     model_name = "Qwen/Qwen2.5-1.5B-Instruct"
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float32,
-        device_map="mps"
+        torch_dtype=torch.float16,
+        device_map="cuda"
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
