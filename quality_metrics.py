@@ -1,99 +1,200 @@
+from typing import Dict, Tuple, List
 import re
-from typing import Dict, Tuple
+from collections import Counter
+import numpy as np
+from nltk.tokenize import sent_tokenize
+import spacy
 
-def extract_sections(text: str) -> Tuple[str, str]:
-    """Extract thinking and solution sections from text."""
-    thinking = ""
-    solution = ""
-    
-    # Extract thinking section
-    thinking_match = re.search(r'<\|begin_of_thought\|>(.*?)<\|end_of_thought\|>', 
-                             text, re.DOTALL)
-    if thinking_match:
-        thinking = thinking_match.group(1).strip()
-    
-    # Extract solution section
-    solution_match = re.search(r'<\|begin_of_solution\|>(.*?)<\|end_of_solution\|>', 
-                             text, re.DOTALL)
-    if solution_match:
-        solution = solution_match.group(1).strip()
-    
-    return thinking, solution
-
-def check_thinking_structure(text: str) -> float:
-    """Check if text has proper thinking and solution structure."""
-    score = 0.0
-    required_tags = [
-        '<|begin_of_thought|>',
-        '<|end_of_thought|>',
-        '<|begin_of_solution|>',
-        '<|end_of_solution|>'
-    ]
-    
-    for tag in required_tags:
-        if tag in text:
-            score += 0.25
-    
-    return score
-
-def count_reasoning_steps(thinking: str) -> float:
-    """Count number of distinct reasoning steps."""
-    # Split by double newlines to count major steps
-    steps = [s for s in thinking.split('\n\n') if s.strip()]
-    
-    # Normalize score: 0.0 for 0 steps, 1.0 for 5+ steps
-    return min(len(steps) / 5.0, 1.0)
-
-def check_verification(thinking: str) -> float:
-    """Check for presence of verification/checking in reasoning."""
-    verification_phrases = [
-        'verify', 'check', 'confirm', 'validate',
-        'double-check', 'ensure', 'review'
-    ]
-    
-    score = 0.0
-    lower_thinking = thinking.lower()
-    
-    for phrase in verification_phrases:
-        if phrase in lower_thinking:
-            score += 0.2
-    
-    return min(score, 1.0)
-
-def compute_quality_score(generated: str, 
-                         original: str = None, 
-                         weights: Dict[str, float] = None) -> float:
-    """Compute overall quality score for generated response."""
-    if weights is None:
-        weights = {
-            'thinking_structure': 0.3,
-            'step_count': 0.2,
-            'verification': 0.2,
-            'similarity': 0.3
+class EnhancedQualityMetrics:
+    def __init__(self):
+        # Load spaCy for better text analysis
+        self.nlp = spacy.load("en_core_web_sm")
+        
+        # Keywords for different aspects of reasoning
+        self.reasoning_indicators = {
+            'causal': ['because', 'therefore', 'thus', 'hence', 'so', 'as a result'],
+            'comparison': ['however', 'although', 'while', 'in contrast', 'similarly'],
+            'sequential': ['first', 'second', 'then', 'next', 'finally', 'lastly'],
+            'verification': ['verify', 'check', 'confirm', 'ensure', 'validate', 'test'],
+            'reflection': ['consider', 'note that', 'observe that', 'importantly', 'key point']
         }
+
+    def extract_sections(self, text: str) -> Dict[str, str]:
+        """Extract reasoning sections with enhanced pattern matching"""
+        sections = {}
+        
+        # Handle both token formats
+        start_patterns = [r'\|begin_reasoning\|', r'<\|begin_of_thought\|>']
+        end_patterns = [r'\|end_reasoning\|', r'<\|end_of_thought\|>']
+        
+        for start_pat, end_pat in zip(start_patterns, end_patterns):
+            if re.search(start_pat, text):
+                # Extract main reasoning
+                reasoning_match = re.search(f'{start_pat}(.*?){end_pat}', text, re.DOTALL)
+                if reasoning_match:
+                    sections['reasoning'] = reasoning_match.group(1).strip()
+                
+                # Extract solution/summary if present
+                solution_match = re.search(r'Summary:(.*?)(?:\||$)', text, re.DOTALL)
+                if solution_match:
+                    sections['summary'] = solution_match.group(1).strip()
+                
+        return sections
+
+    def analyze_reasoning_depth(self, text: str) -> float:
+        """Analyze depth and sophistication of reasoning"""
+        doc = self.nlp(text)
+        
+        # Analyze sentence structure
+        sentence_lengths = [len(sent) for sent in doc.sents]
+        complexity_score = np.mean(sentence_lengths) / 100  # Normalize
+        
+        # Count reasoning indicators
+        indicator_count = 0
+        for category, words in self.reasoning_indicators.items():
+            for word in words:
+                indicator_count += text.lower().count(word)
+        
+        # Calculate final depth score
+        depth_score = (complexity_score + (indicator_count / 20)) / 2  # Normalize to 0-1
+        return min(depth_score, 1.0)
+
+    def evaluate_structure(self, text: str) -> Tuple[float, Dict[str, int]]:
+        """Evaluate reasoning structure and organization"""
+        sections = self.extract_sections(text)
+        if not sections:
+            return 0.0, {}
+        
+        # Split into sentences
+        sentences = sent_tokenize(sections.get('reasoning', ''))
+        
+        # Analyze structure
+        metrics = {
+            'total_sentences': len(sentences),
+            'reasoning_indicators': 0,
+            'verification_steps': 0,
+            'reflection_points': 0
+        }
+        
+        # Count different types of reasoning steps
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            
+            # Count reasoning indicators
+            for category, words in self.reasoning_indicators.items():
+                if any(word in sentence_lower for word in words):
+                    metrics['reasoning_indicators'] += 1
+                    
+                    if category == 'verification':
+                        metrics['verification_steps'] += 1
+                    elif category == 'reflection':
+                        metrics['reflection_points'] += 1
+        
+        # Calculate structure score
+        if metrics['total_sentences'] == 0:
+            return 0.0, metrics
+            
+        structure_score = (
+            (metrics['reasoning_indicators'] / metrics['total_sentences']) * 0.4 +
+            (min(metrics['verification_steps'], 2) / 2) * 0.3 +
+            (min(metrics['reflection_points'], 2) / 2) * 0.3
+        )
+        
+        return min(structure_score, 1.0), metrics
+
+    def compute_coherence_score(self, text: str) -> float:
+        """Evaluate logical coherence and flow"""
+        doc = self.nlp(text)
+        
+        # Analyze sentence transitions
+        coherence_metrics = []
+        prev_sent = None
+        
+        for sent in doc.sents:
+            if prev_sent is not None:
+                # Check for logical connectors
+                has_connector = any(word.text.lower() in sum(self.reasoning_indicators.values(), [])
+                                  for word in sent)
+                
+                # Check subject consistency
+                curr_subjects = {token for token in sent if "subj" in token.dep_}
+                prev_subjects = {token for token in prev_sent if "subj" in token.dep_}
+                subject_overlap = bool(curr_subjects & prev_subjects)
+                
+                coherence_metrics.append(has_connector or subject_overlap)
+            
+            prev_sent = sent
+        
+        if not coherence_metrics:
+            return 0.0
+            
+        return sum(coherence_metrics) / len(coherence_metrics)
+
+    def compute_quality_score(self, text: str, reference: str = None) -> Dict[str, float]:
+        """Compute comprehensive quality score"""
+        # Extract sections
+        sections = self.extract_sections(text)
+        if not sections:
+            return {
+                'overall_score': 0.0,
+                'reasoning_depth': 0.0,
+                'structure_score': 0.0,
+                'coherence_score': 0.0,
+                'reference_similarity': 0.0
+            }
+        
+        # Calculate individual metrics
+        reasoning_depth = self.analyze_reasoning_depth(sections['reasoning'])
+        structure_score, _ = self.evaluate_structure(text)
+        coherence_score = self.compute_coherence_score(sections['reasoning'])
+        
+        # Calculate reference similarity if provided
+        reference_similarity = 0.0
+        if reference:
+            ref_sections = self.extract_sections(reference)
+            if ref_sections:
+                # Use spaCy similarity
+                ref_doc = self.nlp(ref_sections['reasoning'])
+                gen_doc = self.nlp(sections['reasoning'])
+                reference_similarity = ref_doc.similarity(gen_doc)
+        
+        # Compute weighted overall score
+        weights = {
+            'reasoning_depth': 0.3,
+            'structure': 0.3,
+            'coherence': 0.2,
+            'reference_similarity': 0.2
+        }
+        
+        overall_score = (
+            weights['reasoning_depth'] * reasoning_depth +
+            weights['structure'] * structure_score +
+            weights['coherence'] * coherence_score +
+            weights['reference_similarity'] * reference_similarity
+        )
+        
+        return {
+            'overall_score': overall_score,
+            'reasoning_depth': reasoning_depth,
+            'structure_score': structure_score,
+            'coherence_score': coherence_score,
+            'reference_similarity': reference_similarity
+        }
+
+if __name__ == "__main__":
+    # Example usage
+    evaluator = EnhancedQualityMetrics()
     
-    # Extract sections
-    generated_thinking, generated_solution = extract_sections(generated)
-    
-    # Calculate individual scores
-    structure_score = check_thinking_structure(generated)
-    steps_score = count_reasoning_steps(generated_thinking)
-    verification_score = check_verification(generated_thinking)
-    
-    # Calculate similarity score if original is provided
-    similarity_score = 0.0
-    if original:
-        original_thinking, _ = extract_sections(original)
-        # Simple overlap score for now - could be replaced with embedding similarity
-        common_phrases = set(original_thinking.split()) & set(generated_thinking.split())
-        similarity_score = len(common_phrases) / max(len(set(original_thinking.split())), 1)
-    
-    # Compute weighted score
-    final_score = (
-        weights['thinking_structure'] * structure_score +
-        weights['step_count'] * steps_score +
-        weights['verification'] * verification_score +
-        weights['similarity'] * similarity_score
-    )
-    
-    return final_score
+    sample_text = """|begin_reasoning|
+First, let's analyze the key components of this problem.
+Because of X, we can conclude Y.
+Therefore, the solution must satisfy conditions A and B.
+Let me verify this by checking each step.
+Important to note that this assumption holds true only when Z.
+Summary: The solution is valid and meets all requirements.
+|end_reasoning|"""
+
+    scores = evaluator.compute_quality_score(sample_text)
+    print("\nQuality Scores:")
+    for metric, score in scores.items():
+        print(f"{metric}: {score:.3f}")
