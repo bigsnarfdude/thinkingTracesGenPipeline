@@ -1,5 +1,5 @@
 import pytest
-from scripts.utils.metrics import (
+from quality_metrics import (
     extract_sections,
     check_thinking_structure,
     count_reasoning_steps,
