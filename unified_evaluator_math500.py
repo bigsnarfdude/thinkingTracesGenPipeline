@@ -15,22 +15,23 @@ class ModelEvaluator:
         self.model, self.tokenizer = self._setup_model()
 
     def _setup_model(self):
-        base_model_name = "Qwen/Qwen2.5-1.5B-Instruct"  # Moved here as it's used by multiple model types
+        base_model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         
         if self.model_type == "lora":
-            # Optimized LoRA model setup
+            # LoRA model setup
+            bnb_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                bnb_8bit_use_double_quant=True,
+                bnb_8bit_quant_type="nf8",
+                bnb_8bit_compute_dtype=torch.float16
+            )
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
+                quantization_config=bnb_config,
                 torch_dtype=torch.float16,
-                device_map="cuda",  # Direct CUDA mapping
-                low_cpu_mem_usage=True
+                device_map="auto"
             )
-            model = PeftModel.from_pretrained(
-                base_model, 
-                "qwen-sft-lora-epoch1-final",
-                torch_dtype=torch.float16,
-                device_map="cuda"
-            )
+            model = PeftModel.from_pretrained(base_model, "qwen-sft-lora-epoch1-final")
             tokenizer = AutoTokenizer.from_pretrained(base_model_name)
             
         elif self.model_type == "base":
@@ -47,9 +48,6 @@ class ModelEvaluator:
             model_name = "YWZBrandon/openai-gsm8k_Qwen-Qwen2.5-1.5B_full_sft_2e-6"
             pipeline_obj = pipeline("text-generation", model=model_name, device=self.device)
             return pipeline_obj, None
-        
-        else:
-            raise ValueError(f"Unknown model type: {self.model_type}")
             
         return model, tokenizer
 
@@ -68,7 +66,7 @@ class ModelEvaluator:
         2. Present your solution between <solution> and </solution> tags
         3. Present your final answer between <answer> and </answer> tags
 
-        The answer should be simplified and in the same format as the given answer format in the question.
+        The answer should be in LaTeX format and match the format shown in the question.
         """
         
         messages = [
@@ -118,102 +116,97 @@ def normalize_answer(answer):
     """Normalize answer string for comparison."""
     # Remove whitespace and convert to lowercase
     answer = re.sub(r'\s+', '', answer.lower())
-    # Remove unnecessary characters
-    answer = re.sub(r'[,\{\}\[\]()]', '', answer)
+    # Remove unnecessary characters but preserve important math symbols
+    answer = re.sub(r'[,\{\}\[\]()](?![0-9])', '', answer)
+    # Normalize LaTeX fractions
+    answer = re.sub(r'\\frac{(\d+)}{(\d+)}', r'\1/\2', answer)
+    # Normalize pi
+    answer = answer.replace('\\pi', 'pi')
     return answer
 
 def is_correct_answer(predicted, reference):
     """Compare predicted answer with reference answer."""
+    if not predicted or not reference:
+        return False
     return normalize_answer(predicted) == normalize_answer(reference)
+
 def evaluate_model(model_type, num_samples=50):
     """Evaluate a specific model type on MATH-500 dataset."""
-    try:
-        # Load dataset
-        dataset = load_dataset("HuggingFaceH4/MATH-500")['test']
-        if num_samples:
-            dataset = dataset.select(range(min(num_samples, len(dataset))))
-        
-        # Initialize model
-        evaluator = ModelEvaluator(model_type)
-        
-        results = []
-        correct = 0
-        total = 0
-        
-        print(f"\nEvaluating {model_type} model on {num_samples if num_samples else 'all'} samples...")
-        
-        for sample in tqdm(dataset):
-            try:
-                # Safely access sample data with default values
-                context = sample.get('context', '')
-                question = sample.get('question', '')
-                answer_format = sample.get('answer_format', '')
-                answer = sample.get('answer', '')
-                subject = sample.get('subject', 'unknown')
-                level = sample.get('level', 'unknown')
-                
-                if not question:  # Skip if question is empty
-                    print(f"Skipping sample due to missing question")
-                    continue
-                
-                # Format question with available information
-                formatted_question = f"{context}\n\nQuestion: {question}"
-                if answer_format:
-                    formatted_question += f"\n\nAnswer format: {answer_format}"
-                
-                # Generate response
-                model_response = evaluator.generate_response(formatted_question)
-                thinking, solution, predicted_answer = extract_sections(model_response)
-                
-                # Only check correctness if we have both predicted and true answers
-                if predicted_answer and answer:
-                    is_correct = is_correct_answer(predicted_answer, answer)
-                    correct += int(is_correct)
-                    total += 1
-                else:
-                    is_correct = False
-                    print(f"Skipping accuracy calculation due to missing answer")
-                
-                # Store result
-                results.append({
-                    'question': formatted_question,
-                    'context': context,
-                    'true_answer': answer,
-                    'predicted_answer': predicted_answer,
-                    'thinking': thinking,
-                    'solution': solution,
-                    'full_response': model_response,
-                    'is_correct': is_correct,
-                    'subject': subject,
-                    'level': level
-                })
-                
-            except Exception as e:
-                print(f"Error processing sample: {str(e)}")
-                continue
-        
-        # Calculate accuracy only if we have processed samples
-        accuracy = correct / total if total > 0 else 0
-        
-        return {
-            'model_type': model_type,
-            'accuracy': accuracy,
-            'correct': correct,
-            'total': total,
-            'detailed_results': results
-        }
-        
-    except Exception as e:
-        print(f"Error in evaluate_model: {str(e)}")
-        # Return empty results structure
-        return {
-            'model_type': model_type,
-            'accuracy': 0.0,
-            'correct': 0,
-            'total': 0,
-            'detailed_results': []
-        }
-
+    # Load dataset
+    dataset = load_dataset("HuggingFaceH4/MATH-500")['test']
+    if num_samples:
+        dataset = dataset.select(range(num_samples))
+    
+    # Initialize model
+    evaluator = ModelEvaluator(model_type)
+    
+    results = []
+    correct = 0
+    total = 0
+    
+    print(f"\nEvaluating {model_type} model on {num_samples if num_samples else 'all'} samples...")
+    
+    for idx, sample in enumerate(tqdm(dataset)):
+        try:
+            # Get problem and answer
+            problem = sample['problem']
+            true_answer = sample['answer']
+            
+            # Format the question with LaTeX math mode hints
+            formatted_question = (
+                "Solve this math problem. Express your answer in the same format as shown in the question.\n\n"
+                f"Problem: {problem}\n\n"
+                "Show your work step by step, and use LaTeX notation for mathematical expressions."
+            )
+            
+            # Generate response
+            model_response = evaluator.generate_response(formatted_question)
+            thinking, solution, predicted_answer = extract_sections(model_response)
+            
+            # Debug first sample
+            if idx == 0:
+                print("\nFirst problem processing:")
+                print(f"Problem: {problem[:200]}")
+                print(f"True answer: {true_answer}")
+                print(f"Predicted answer: {predicted_answer}")
+                print(f"Thinking: {thinking[:200] if thinking else 'None'}")
+            
+            # Check if correct
+            is_correct = is_correct_answer(predicted_answer, true_answer)
+            correct += int(is_correct)
+            total += 1
+            
+            # Store result
+            results.append({
+                'problem': problem,
+                'true_answer': true_answer,
+                'predicted_answer': predicted_answer,
+                'thinking': thinking,
+                'solution': solution,
+                'full_response': model_response,
+                'is_correct': is_correct,
+                'subject': sample['subject'],
+                'level': sample['level']
+            })
+            
+        except Exception as e:
+            print(f"\nError processing sample {idx}: {str(e)}")
+            continue
+    
+    # Calculate accuracy
+    accuracy = correct / total if total > 0 else 0
+    
+    print(f"\nProcessed {total} samples successfully")
+    print(f"Correct: {correct}")
+    print(f"Accuracy: {accuracy * 100:.2f}%")
+    
+    return {
+        'model_type': model_type,
+        'accuracy': accuracy,
+        'correct': correct,
+        'total': total,
+        'detailed_results': results
+    }
 
 def save_results(results):
     """Save evaluation results to files."""
@@ -283,28 +276,23 @@ def save_results(results):
         json.dump(analysis, f, indent=2)
     
     return output_dir
-    
+
 def main():
     # Number of samples to evaluate (set to None for full dataset)
     NUM_SAMPLES = 50
     
-    # Models to evaluate - removed 'sky' as it's not implemented
-    model_types = ["sft"]  # Start with just sft model for testing
+    # Models to evaluate - removed sky from the list
+    model_types = ["base", "lora", "sft"]
     
     for model_type in model_types:
-        try:
-            print(f"\nStarting evaluation of {model_type} model...")
-            results = evaluate_model(model_type, NUM_SAMPLES)
-            output_dir = save_results(results)
-            
-            print(f"\nResults for {model_type} model:")
-            print(f"Accuracy: {results['accuracy']*100:.2f}%")
-            print(f"Correct: {results['correct']}/{results['total']}")
-            print(f"Results saved in: {output_dir}")
-            
-        except Exception as e:
-            print(f"Error evaluating {model_type} model: {str(e)}")
-            continue
+        print(f"\nEvaluating {model_type} model...")
+        results = evaluate_model(model_type, NUM_SAMPLES)
+        output_dir = save_results(results)
+        
+        print(f"\nResults for {model_type} model:")
+        print(f"Accuracy: {results['accuracy']*100:.2f}%")
+        print(f"Correct: {results['correct']}/{results['total']}")
+        print(f"Results saved in: {output_dir}")
 
 if __name__ == "__main__":
     main()
