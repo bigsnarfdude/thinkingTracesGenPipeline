@@ -41,4 +41,38 @@ qwen_reasoning/
 │
 ├── requirements.txt
 └── README.md
+
+
+Round 1 Epoch1 SFT warm up
+
+{
+  "models": [
+    {
+      "model_type": "base",
+      "accuracy": 0.076,
+      "correct": 38,
+      "total": 500,
+      "timestamp": "20250128_040327"
+    },
+    {
+      "model_type": "lora",
+      "accuracy": 0.074,
+      "correct": 37,
+      "total": 500,
+      "timestamp": "20250128_053240"
+    },
+    {
+      "model_type": "sft",
+      "accuracy": 0.084,
+      "correct": 42,
+      "total": 500,
+      "timestamp": "20250128_055926"
+    }
+  ],
+  "timestamp": "20250128_055926"
+
+
+
+
+
 ```
