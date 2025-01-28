@@ -87,7 +87,10 @@ Round 2 Epoch2 SFT warm up Bespoke 17k
   ],
   "timestamp": "20250128_080540"
 
-Round 1 Epoch3 PPO 10k SkyT1 quality
+# TODO Round 3 Epoch3 PPO 10k SkyT1 quality
+Round 3 Epoch3 PPO 10k Bespoke 35k
+
+
 
 
 
