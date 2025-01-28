@@ -11,7 +11,7 @@ from datetime import datetime
 class RLTrainer:
     def __init__(
         self, 
-        model_name="mistralai/Mistral-7B-Instruct-v0.2",
+        model_name="Qwen/Qwen2.5-1.5B-Instruct",
         project_name="rl-instruct-training",
         load_in_8bit=True
     ):
@@ -263,7 +263,7 @@ def main():
     # Initialize trainer
     trainer = RLTrainer(
         project_name="rl-instruct-training",
-        model_name="mistralai/Mistral-7B-Instruct-v0.2"
+        model_name="Qwen/Qwen2.5-1.5B-Instruct"
     )
     
     # Train model
