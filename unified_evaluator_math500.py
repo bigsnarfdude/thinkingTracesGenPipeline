@@ -18,35 +18,41 @@ class ModelEvaluator:
         base_model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         
         if self.model_type == "lora":
-            # LoRA model setup
-            bnb_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-                bnb_8bit_use_double_quant=True,
-                bnb_8bit_quant_type="nf8",
-                bnb_8bit_compute_dtype=torch.float16
-            )
+            # Modified LoRA model setup
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
-                quantization_config=bnb_config,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                trust_remote_code=True
+            )
+            model = PeftModel.from_pretrained(
+                base_model, 
+                "qwen-sft-lora-epoch1-final",
                 torch_dtype=torch.float16,
                 device_map="auto"
             )
-            model = PeftModel.from_pretrained(base_model, "qwen-sft-lora-epoch1-final")
-            tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+            tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)
+            model.eval()  # Ensure model is in evaluation mode
             
         elif self.model_type == "base":
             # Base model setup
             model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
                 torch_dtype=torch.float16,
-                device_map="cuda"
+                device_map="cuda",
+                trust_remote_code=True
             )
-            tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+            tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)
             
         elif self.model_type == "sft":
             # SFT model setup
             model_name = "YWZBrandon/openai-gsm8k_Qwen-Qwen2.5-1.5B_full_sft_2e-6"
-            pipeline_obj = pipeline("text-generation", model=model_name, device=self.device)
+            pipeline_obj = pipeline(
+                "text-generation", 
+                model=model_name, 
+                device=self.device,
+                trust_remote_code=True
+            )
             return pipeline_obj, None
             
         return model, tokenizer
@@ -281,7 +287,6 @@ def main():
     # Number of samples to evaluate (set to None for full dataset)
     NUM_SAMPLES = 50
     
-    # Models to evaluate - removed sky from the list
     model_types = ["base", "lora", "sft"]
     
     for model_type in model_types:
