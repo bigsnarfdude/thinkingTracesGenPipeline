@@ -166,28 +166,84 @@ def extract_answer(text):
     return ""
 
 def normalize_answer(answer):
-    """Normalize answer for comparison."""
+    """Normalize answer string for comparison."""
     if not answer:
         return ""
-        
+    
     # Remove whitespace and convert to lowercase
     answer = re.sub(r'\s+', '', answer.lower())
     
-    # Remove LaTeX wrappers
-    answer = re.sub(r'\\[\(\[](.+?)\\[\)\]]', r'\1', answer)
+    # Remove LaTeX enclosures (\left, \right, \boxed, etc.)
+    answer = re.sub(r'\\left', '', answer)
+    answer = re.sub(r'\\right', '', answer)
     answer = re.sub(r'\\boxed{(.+?)}', r'\1', answer)
+    answer = re.sub(r'\\[\(\[](.+?)\\[\)\]]', r'\1', answer)
     
-    # Normalize mathematical notations
-    answer = re.sub(r'\\frac{(\d+)}{(\d+)}', r'\1/\2', answer)
+    # Handle coordinates - standardize parentheses and comma spacing
+    answer = re.sub(r'\(([^)]+)\)', lambda m: '(' + re.sub(r'\s*,\s*', ',', m.group(1)) + ')', answer)
+    
+    # Normalize fractions
+    def normalize_fraction(match):
+        num = match.group(1)
+        den = match.group(2)
+        # Convert to decimal for numerical fractions
+        if num.isdigit() and den.isdigit():
+            return str(int(num)/int(den))
+        return f"{num}/{den}"
+    answer = re.sub(r'\\frac{([^{}]+)}{([^{}]+)}', normalize_fraction, answer)
+    
+    # Normalize special values
     answer = answer.replace('\\pi', 'pi')
-    answer = answer.replace('\\circ', 'degrees')
-    answer = answer.replace('\\degree', 'degrees')
+    answer = answer.replace('\\infty', 'infinity')
+    answer = re.sub(r'\\(?:circ|degree)s?', 'degrees', answer)
     
-    # Remove other LaTeX commands
+    # Handle variables and operators
+    answer = re.sub(r'(\d)([a-z])', r'\1*\2', answer)  # Add * between numbers and variables
+    answer = answer.replace('^', '**')  # Standardize exponentiation
+    
+    # Remove remaining LaTeX commands and unnecessary brackets
     answer = re.sub(r'\\[a-zA-Z]+', '', answer)
-    answer = re.sub(r'[{}\[\]()](?![0-9])', '', answer)
+    answer = re.sub(r'[{}\[\]](?![0-9])', '', answer)
+    
+    # Keep parentheses for coordinates and grouping
+    # but remove standalone parentheses
+    if not ('(' in answer and ')' in answer and ',' in answer):
+        answer = re.sub(r'[()]', '', answer)
     
     return answer
+
+def answers_match(predicted, reference):
+    """Compare predicted answer with reference answer with detailed logging."""
+    if not predicted or not reference:
+        return False
+    
+    norm_predicted = normalize_answer(predicted)
+    norm_reference = normalize_answer(reference)
+    
+    # Log normalization results for debugging
+    logger.debug(f"Original predicted: {predicted}")
+    logger.debug(f"Original reference: {reference}")
+    logger.debug(f"Normalized predicted: {norm_predicted}")
+    logger.debug(f"Normalized reference: {norm_reference}")
+    
+    # Try exact match first
+    if norm_predicted == norm_reference:
+        return True
+    
+    # For coordinate pairs, check numerical equivalence
+    coord_pattern = r'\(([\d\.\-]+),([\d\.\-]+)\)'
+    pred_coords = re.match(coord_pattern, norm_predicted)
+    ref_coords = re.match(coord_pattern, norm_reference)
+    
+    if pred_coords and ref_coords:
+        try:
+            pred_x, pred_y = map(float, pred_coords.groups())
+            ref_x, ref_y = map(float, ref_coords.groups())
+            return abs(pred_x - ref_x) < 1e-6 and abs(pred_y - ref_y) < 1e-6
+        except ValueError:
+            pass
+    
+    return False
 
 def evaluate_model(model_type, num_samples=50):
     """Evaluate model on MATH-500 dataset."""
@@ -227,7 +283,7 @@ def evaluate_model(model_type, num_samples=50):
                     logger.info(f"Model response: {model_response[:200]}...")
                     logger.info(f"Extracted answer: {predicted_answer}")
                 
-                is_correct = normalize_answer(predicted_answer) == normalize_answer(true_answer)
+                is_correct = answers_match(predicted_answer, true_answer)
                 correct += int(is_correct)
                 total += 1
                 
@@ -263,15 +319,20 @@ def evaluate_model(model_type, num_samples=50):
         logger.error(f"Error in evaluate_model: {str(e)}")
         raise
 
-def save_results(results):
-    """Save evaluation results to files."""
+
+def save_results(results, all_results=None):
+    """Save evaluation results to files with combined summary."""
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_dir = f"math500_eval_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Save summary
-        summary = {
+        # Initialize or update all_results
+        if all_results is None:
+            all_results = []
+        
+        # Create current model summary
+        current_summary = {
             'model_type': results['model_type'],
             'accuracy': results['accuracy'],
             'correct': results['correct'],
@@ -279,8 +340,19 @@ def save_results(results):
             'timestamp': timestamp
         }
         
+        # Add to all results
+        all_results.append(current_summary)
+        
+        # Save combined summary of all models
+        with open(f"{output_dir}/summary_all_models.json", 'w') as f:
+            json.dump({
+                'models': all_results,
+                'timestamp': timestamp
+            }, f, indent=2)
+        
+        # Save individual model summary
         with open(f"{output_dir}/summary_{results['model_type']}.json", 'w') as f:
-            json.dump(summary, f, indent=2)
+            json.dump(current_summary, f, indent=2)
         
         # Save detailed results
         with open(f"{output_dir}/detailed_{results['model_type']}.jsonl", 'w', encoding='utf-8') as f:
@@ -288,7 +360,7 @@ def save_results(results):
                 f.write(json.dumps(result, ensure_ascii=False) + '\n')
                 
         logger.info(f"Results saved to {output_dir}")
-        return output_dir
+        return output_dir, all_results
         
     except Exception as e:
         logger.error(f"Error saving results: {str(e)}")
@@ -297,22 +369,57 @@ def save_results(results):
 def main():
     """Main entry point."""
     try:
+        logger.info("Starting evaluation...")
         NUM_SAMPLES = 50
         model_types = ["base", "lora", "sft"]
+        all_results = []
         
         for model_type in model_types:
-            logger.info(f"\nEvaluating {model_type} model...")
-            results = evaluate_model(model_type, NUM_SAMPLES)
-            output_dir = save_results(results)
-            
-            logger.info(f"\nResults for {model_type} model:")
-            logger.info(f"Accuracy: {results['accuracy']*100:.2f}%")
-            logger.info(f"Correct: {results['correct']}/{results['total']}")
-            logger.info(f"Results saved in: {output_dir}")
+            try:
+                logger.info(f"\nStarting setup for {model_type} model...")
+                
+                # Setup model
+                logger.info(f"Setting up {model_type} model...")
+                model, tokenizer = setup_model(model_type)
+                logger.info(f"Successfully set up {model_type} model")
+                
+                # Evaluate model
+                logger.info(f"Beginning evaluation of {model_type} model...")
+                results = evaluate_model(model_type, NUM_SAMPLES)
+                logger.info(f"Completed evaluation of {model_type} model")
+                
+                # Save results
+                logger.info(f"Saving results for {model_type} model...")
+                output_dir, all_results = save_results(results, all_results)
+                
+                logger.info(f"\nResults for {model_type} model:")
+                logger.info(f"Accuracy: {results['accuracy']*100:.2f}%")
+                logger.info(f"Correct: {results['correct']}/{results['total']}")
+                logger.info(f"Results saved in: {output_dir}")
+                
+            except Exception as e:
+                logger.error(f"Error processing {model_type} model: {str(e)}")
+                logger.error(f"Traceback:", exc_info=True)
+                continue  # Continue with next model even if one fails
             
     except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
+        logger.error(f"Fatal error in main: {str(e)}")
+        logger.error("Traceback:", exc_info=True)
         raise
 
 if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),  # Console handler
+            logging.FileHandler('evaluation.log')  # File handler
+        ]
+    )
+    
+    # Suppress TensorFlow and other warnings
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    warnings.filterwarnings('ignore')
+    
     main()
