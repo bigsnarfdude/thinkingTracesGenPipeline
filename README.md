@@ -55,7 +55,7 @@ Round 1 Epoch1 SFT warm up
       "timestamp": "20250128_040327"
     },
     {
-      "model_type": "lora",
+      "model_type": "epoch1",
       "accuracy": 0.074,
       "correct": 37,
       "total": 500,
@@ -71,7 +71,17 @@ Round 1 Epoch1 SFT warm up
   ],
   "timestamp": "20250128_055926"
 
-
+{
+  "models": [
+    {
+      "model_type": "epoch2",
+      "accuracy": 0.066,
+      "correct": 33,
+      "total": 500,
+      "timestamp": "20250128_080540"
+    }
+  ],
+  "timestamp": "20250128_080540"
 
 
 
