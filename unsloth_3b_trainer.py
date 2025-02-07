@@ -8,6 +8,8 @@ from trl import GRPOConfig, GRPOTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from peft import get_peft_model_state_dict, PeftConfig, PeftModel
 import logging
+import json
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -187,19 +189,18 @@ trainer = GRPOTrainer(
 )
 
 def save_model(model, tokenizer, save_path: str):
-    """Save model, config, and tokenizer"""
     try:
-        # Create output directory
         os.makedirs(save_path, exist_ok=True)
         
-        # Save the LoRA weights
-        peft_state_dict = get_peft_model_state_dict(model)
-        torch.save(peft_state_dict, os.path.join(save_path, "adapter_model.bin"))
+        # Save PEFT config as JSON
+        with open(os.path.join(save_path, "adapter_config.json"), "w") as f:
+            json.dump(model.peft_config, f, indent=2)
         
-        # Save config
+        # Save LoRA weights
+        torch.save(get_peft_model_state_dict(model), os.path.join(save_path, "adapter_model.bin"))
+        
+        # Save base config and tokenizer
         model.config.save_pretrained(save_path)
-        
-        # Save tokenizer
         tokenizer.save_pretrained(save_path)
         
         logger.info(f"Model saved successfully to {save_path}")
