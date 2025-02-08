@@ -9,6 +9,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from peft import get_peft_model_state_dict, PeftConfig, PeftModel
 import logging
 import json
+from peft import PeftModel, PeftConfig
+
 
 
 # Setup logging
@@ -42,13 +44,13 @@ try:
         trust_remote_code=True
     )
     print("Model loaded successfully")
-    
+
     if model is None:
         raise ValueError("Model is None after loading")
-    
+
     print("Model type:", type(model))
     print("Model config:", model.config)
-        
+
 except Exception as e:
     print(f"Detailed model loading error: {str(e)}")
     print(f"Error type: {type(e)}")
@@ -109,7 +111,7 @@ def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[floa
     responses = [completion[0]['content'] for completion in completions]
     q = prompts[0][-1]['content']
     extracted_responses = [extract_xml_answer(r) for r in responses]
-    print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", 
+    print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}",
           f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
     return [2.0 if r == a else 0.0 for r, a in zip(extracted_responses, answer)]
 
@@ -187,37 +189,68 @@ trainer = GRPOTrainer(
     args=training_args,
     train_dataset=dataset,
 )
-
 def save_model(model, tokenizer, save_path: str):
     try:
         os.makedirs(save_path, exist_ok=True)
+        print("Created directory")
+
+        # Convert LoraConfig to dict before saving
+        config_dict = {
+            "peft_type": "LORA",
+            "task_type": "CAUSAL_LM",
+            "inference_mode": False,
+            "r": model.peft_config['default'].r,
+            "target_modules": list(model.peft_config['default'].target_modules),  # Convert set to list
+            "lora_alpha": model.peft_config['default'].lora_alpha,
+            "lora_dropout": model.peft_config['default'].lora_dropout,
+            "fan_in_fan_out": model.peft_config['default'].fan_in_fan_out,
+            "bias": model.peft_config['default'].bias,
+            "base_model_name_or_path": model.peft_config['default'].base_model_name_or_path
+        }
         
         # Save PEFT config as JSON
-        with open(os.path.join(save_path, "adapter_config.json"), "w") as f:
-            json.dump(model.peft_config, f, indent=2)
-        
+        config_path = os.path.join(save_path, "adapter_config.json")
+        with open(config_path, "w") as f:
+            json.dump(config_dict, f, indent=2)
+        print("Saved adapter config")
+
         # Save LoRA weights
-        torch.save(get_peft_model_state_dict(model), os.path.join(save_path, "adapter_model.bin"))
+        print("Getting PEFT model state dict...")
+        state_dict = get_peft_model_state_dict(model)
+        print("State dict keys:", state_dict.keys())
         
+        weights_path = os.path.join(save_path, "adapter_model.bin")
+        torch.save(state_dict, weights_path)
+        print("Saved adapter weights")
+
         # Save base config and tokenizer
         model.config.save_pretrained(save_path)
         tokenizer.save_pretrained(save_path)
-        
-        logger.info(f"Model saved successfully to {save_path}")
+        print("Saved config and tokenizer")
+
         return True
     except Exception as e:
-        logger.error(f"Error saving model: {str(e)}")
+        print(f"Detailed save error: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def load_lora_weights(base_model, lora_path: str):
     """Load LoRA weights into base model"""
     try:
+        print(f"Loading LoRA weights from {lora_path}")
         config = PeftConfig.from_pretrained(lora_path)
+        print("Loaded PEFT config")
+        
         model = PeftModel.from_pretrained(base_model, lora_path)
-        logger.info(f"LoRA weights loaded successfully from {lora_path}")
+        print("Successfully loaded LoRA weights")
+        
         return model
     except Exception as e:
-        logger.error(f"Error loading LoRA weights: {str(e)}")
+        print(f"Error loading LoRA weights: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def main():
@@ -255,3 +288,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
