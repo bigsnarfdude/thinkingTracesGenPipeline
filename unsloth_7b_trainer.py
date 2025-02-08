@@ -11,9 +11,9 @@ from trl import GRPOConfig, GRPOTrainer
 from vllm import SamplingParams
 
 # Low memory configuration
-max_seq_length = 256  # Reduced sequence length
-lora_rank = 8  # Reduced LoRA rank
-gpu_memory_utilization = 0.6  # Reduced GPU memory usage
+max_seq_length = 256
+lora_rank = 8
+gpu_memory_utilization = 0.6
 
 print(f"GPU Memory available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
@@ -42,9 +42,9 @@ model = FastLanguageModel.get_peft_model(
 # System prompt
 SYSTEM_PROMPT = """
 Respond in the following format:
-<reasoning>
+<thinking>
 ...
-</reasoning>
+</thinking>
 <answer>
 ...
 </answer>
