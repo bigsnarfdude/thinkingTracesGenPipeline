@@ -12,7 +12,7 @@ from pathlib import Path
 
 def setup_model():
     # Configuration
-    max_seq_length = 256
+    max_seq_length = 512  # Increased from 256
     lora_rank = 8
     gpu_memory_utilization = 0.7
 
@@ -45,13 +45,24 @@ def setup_model():
     return model, tokenizer
 
 def create_prompt(sample):
+    content = f"Using the numbers {sample['nums']}, create an equation that equals {sample['target']}. You can use basic arithmetic operations (+, -, *, /) one or multiple times but each number can only be used once. Show your work in <think> </think> tags. And return the final equation in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>. Think step by step inside <think> tags."
+    
     messages = [
         {"role": "system", "content": "You are a helpful assistant. You first thinks about the reasoning process in the mind and then provides the user with the answer."},
-        {"role": "user", "content": f"Using the numbers {sample['nums']}, create an equation that equals {sample['target']}. You can use basic arithmetic operations (+, -, *, /) one or multiple times but each number can only be used once. Show your work in <think> </think> tags. And return the final equation in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>. Think step by step inside <think> tags."},
+        {"role": "user", "content": content}
     ]
     return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
+def clean_response(response: str) -> str:
+    """Clean the response by removing system/user prefixes and any other artifacts"""
+    # Remove system/user/assistant prefixes
+    response = re.sub(r'^.*?<think>', '<think>', response, flags=re.DOTALL)
+    return response.strip()
+
 def evaluate_response(response, sample_info):
+    # Clean the response first
+    response = clean_response(response)
+    
     metrics = {
         'has_think_tags': False,
         'has_answer_tags': False,
@@ -67,7 +78,7 @@ def evaluate_response(response, sample_info):
     metrics['has_think_tags'] = bool(think_match)
     if think_match:
         think_content = think_match.group(1).strip()
-        metrics['reasoning_present'] = len(think_content) > 50
+        metrics['reasoning_present'] = len(think_content) > 50 and '.' in think_content
         metrics['thinking'] = think_content
     
     answer_match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
@@ -80,7 +91,7 @@ def evaluate_response(response, sample_info):
     
     if answer_match:
         answer = answer_match.group(1).strip()
-        metrics['answer_present'] = bool(answer)
+        metrics['answer_present'] = bool(answer and not answer.isspace())
         metrics['answer'] = answer
     
     return metrics
@@ -96,14 +107,13 @@ def load_results(filename="phi4_countdown_results.json"):
     return []
 
 def main():
-    global model, tokenizer  # Make them global for create_prompt to access
+    global model, tokenizer
     model, tokenizer = setup_model()
     dataset = load_dataset("Jiayi-Pan/Countdown-Tasks-3to4-Unique", split="train")
     
     N = 1000
-    BATCH_SIZE = 10
+    BATCH_SIZE = 5  # Reduced batch size
     
-    # Load existing results or start fresh
     results = load_results()
     if results:
         print(f"Loaded {len(results)} existing results")
@@ -111,12 +121,10 @@ def main():
             print("Already have enough results")
             return results
     
-    # Get indices we haven't processed yet
     processed_nums = {tuple(r['nums']) for r in results}
     remaining_samples = [(i, sample) for i, sample in enumerate(dataset) 
                         if tuple(sample['nums']) not in processed_nums]
     
-    # Randomly sample from remaining
     samples_needed = N - len(results)
     if samples_needed > 0:
         selected_samples = np.random.choice(len(remaining_samples), 
@@ -129,38 +137,42 @@ def main():
             batch_samples = [remaining_samples[i][1] for i in batch_indices]
             batch_prompts = [create_prompt(sample) for sample in batch_samples]
             
-            # Generate responses
+            # Generate responses with increased max_new_tokens
             inputs = tokenizer(batch_prompts, 
                              return_tensors="pt", 
                              padding=True, 
                              truncation=True).to("cuda")
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=512,
+                max_new_tokens=768,  # Increased from 512
                 temperature=0.8,
-                top_p=0.95
+                top_p=0.95,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id
             )
             
             responses = [tokenizer.decode(output, skip_special_tokens=True) 
                         for output in outputs]
             
-            # Evaluate and save batch results
+            # Print first response in batch for monitoring
+            if len(responses) > 0:
+                print("\nSample response:")
+                print(responses[0][:500] + "..." if len(responses[0]) > 500 else responses[0])
+                
             batch_metrics = [evaluate_response(response, sample) 
                            for response, sample in zip(responses, batch_samples)]
             results.extend(batch_metrics)
             
-            # Save after each batch
             save_results(results)
-            
-            # Print progress
             print(f"\nProcessed {len(results)}/{N} samples")
+            
             if len(results) >= N:
                 break
     
-    # Calculate and save final metrics
     total = len(results)
     aggregates = {
         'model': 'Phi-4 with LoRA',
+        'total_samples': total,
         'think_tags_present': sum(r['has_think_tags'] for r in results) / total * 100,
         'answer_tags_present': sum(r['has_answer_tags'] for r in results) / total * 100,
         'correct_format': sum(r['format_correct'] for r in results) / total * 100,
@@ -175,7 +187,6 @@ def main():
         else:
             print(f"{metric}: {value}")
     
-    # Save aggregates
     with open("phi4_countdown_metrics.json", 'w') as f:
         json.dump(aggregates, f, indent=2)
     
