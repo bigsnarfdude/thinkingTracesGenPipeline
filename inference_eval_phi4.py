@@ -11,12 +11,10 @@ import json
 from pathlib import Path
 
 def setup_model():
-    # Configuration
-    max_seq_length = 512  # Increased from 256
+    max_seq_length = 2048
     lora_rank = 8
     gpu_memory_utilization = 0.7
 
-    # Load base model
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name="unsloth/Phi-4",
         max_seq_length=max_seq_length,
@@ -26,7 +24,6 @@ def setup_model():
         gpu_memory_utilization=gpu_memory_utilization,
     )
 
-    # Load LoRA weights
     model = FastLanguageModel.get_peft_model(
         model,
         r=lora_rank,
@@ -36,63 +33,78 @@ def setup_model():
         random_state=3407,
     )
 
-    # Load the trained LoRA weights
     model.load_lora("training_logs/run_20250209_061540/grpo_saved_lora")
-
-    # Prepare model for inference
     model = FastLanguageModel.for_inference(model)
     
     return model, tokenizer
 
 def create_prompt(sample):
-    content = f"Using the numbers {sample['nums']}, create an equation that equals {sample['target']}. You can use basic arithmetic operations (+, -, *, /) one or multiple times but each number can only be used once. Show your work in <think> </think> tags. And return the final equation in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>. Think step by step inside <think> tags."
+    content = f"""Using the numbers {sample['nums']}, create an equation that equals {sample['target']}. Show your step-by-step solution inside <think> </think> tags, and then give only the final equation inside <answer> </answer> tags.
+
+Example format:
+<think>
+1. First, let's try...
+2. Next...
+3. Therefore...
+</think>
+<answer>
+(1 + 2) / 3
+</answer>"""
     
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. You first thinks about the reasoning process in the mind and then provides the user with the answer."},
+        {"role": "system", "content": "You are a helpful assistant. First think step by step about the solution, then provide the final equation."},
         {"role": "user", "content": content}
     ]
     return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 def clean_response(response: str) -> str:
-    """Clean the response by removing system/user prefixes and any other artifacts"""
-    # Remove system/user/assistant prefixes
-    response = re.sub(r'^.*?<think>', '<think>', response, flags=re.DOTALL)
+    """Clean the response by removing instruction artifacts"""
+    if "assistant" in response:
+        response = response.split("assistant")[-1].strip()
+    
+    think_start = response.find("<think>")
+    answer_end = response.rfind("</answer>")
+    
+    if think_start >= 0 and answer_end >= 0:
+        response = response[think_start:answer_end + 9]
+        
     return response.strip()
 
+def extract_content(response: str, tag: str) -> str:
+    """Extract content between specified tags"""
+    start_tag = f"<{tag}>"
+    end_tag = f"</{tag}>"
+    
+    start = response.find(start_tag)
+    end = response.find(end_tag)
+    
+    if start >= 0 and end >= 0:
+        content = response[start + len(start_tag):end]
+        return content.strip()
+    return ""
+
 def evaluate_response(response, sample_info):
-    # Clean the response first
-    response = clean_response(response)
+    cleaned_response = clean_response(response)
+    thinking_content = extract_content(cleaned_response, "think")
+    answer_content = extract_content(cleaned_response, "answer")
     
     metrics = {
-        'has_think_tags': False,
-        'has_answer_tags': False,
+        'has_think_tags': '<think>' in cleaned_response and '</think>' in cleaned_response,
+        'has_answer_tags': '<answer>' in cleaned_response and '</answer>' in cleaned_response,
         'format_correct': False,
-        'answer_present': False,
-        'reasoning_present': False,
+        'answer_present': bool(answer_content),
+        'reasoning_present': len(thinking_content.split()) > 20,
         'nums': sample_info['nums'],
         'target': sample_info['target'],
-        'full_response': response
+        'full_response': response,
+        'thinking': thinking_content,
+        'answer': answer_content
     }
     
-    think_match = re.search(r'<think>(.*?)</think>', response, re.DOTALL)
-    metrics['has_think_tags'] = bool(think_match)
-    if think_match:
-        think_content = think_match.group(1).strip()
-        metrics['reasoning_present'] = len(think_content) > 50 and '.' in think_content
-        metrics['thinking'] = think_content
-    
-    answer_match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
-    metrics['has_answer_tags'] = bool(answer_match)
-    
     if metrics['has_think_tags'] and metrics['has_answer_tags']:
-        think_pos = response.find('<think>')
-        answer_pos = response.find('<answer>')
+        think_pos = cleaned_response.find('<think>')
+        answer_pos = cleaned_response.find('<answer>')
         metrics['format_correct'] = think_pos < answer_pos
-    
-    if answer_match:
-        answer = answer_match.group(1).strip()
-        metrics['answer_present'] = bool(answer and not answer.isspace())
-        metrics['answer'] = answer
     
     return metrics
 
@@ -106,65 +118,92 @@ def load_results(filename="phi4_countdown_results.json"):
             return json.load(f)
     return []
 
+def process_batch(model, tokenizer, samples):
+    """Process a batch of samples"""
+    batch_prompts = [create_prompt(sample) for sample in samples]
+    
+    inputs = tokenizer(batch_prompts, 
+                      return_tensors="pt", 
+                      padding=True, 
+                      truncation=True).to("cuda")
+    
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=1024,
+        min_new_tokens=100,
+        temperature=0.7,
+        top_p=0.9,
+        do_sample=True,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        repetition_penalty=1.1
+    )
+    
+    responses = [tokenizer.decode(output, skip_special_tokens=True) 
+                for output in outputs]
+    
+    return [evaluate_response(response, sample) 
+            for response, sample in zip(responses, samples)]
+
 def main():
     global model, tokenizer
+    print("Setting up model...")
     model, tokenizer = setup_model()
+    
+    print("Loading dataset...")
     dataset = load_dataset("Jiayi-Pan/Countdown-Tasks-3to4-Unique", split="train")
     
-    N = 1000
-    BATCH_SIZE = 5  # Reduced batch size
+    # Debug first with one sample
+    sample = dataset[0]
+    test_metrics = process_batch(model, tokenizer, [sample])[0]
     
+    print("\n=== Test Sample ===")
+    print(f"Numbers: {test_metrics['nums']}")
+    print(f"Target: {test_metrics['target']}")
+    print(f"Answer: {test_metrics['answer']}")
+    print("\nMetrics:", json.dumps({k: v for k, v in test_metrics.items() 
+                                  if k not in ['full_response', 'thinking']}, indent=2))
+    
+    response = input("\nContinue with batch processing? (y/n): ")
+    if response.lower() != 'y':
+        return
+    
+    N = 1000
+    BATCH_SIZE = 5
     results = load_results()
+    
     if results:
         print(f"Loaded {len(results)} existing results")
         if len(results) >= N:
             print("Already have enough results")
             return results
     
-    processed_nums = {tuple(r['nums']) for r in results}
-    remaining_samples = [(i, sample) for i, sample in enumerate(dataset) 
-                        if tuple(sample['nums']) not in processed_nums]
-    
     samples_needed = N - len(results)
     if samples_needed > 0:
-        selected_samples = np.random.choice(len(remaining_samples), 
-                                          size=min(samples_needed, len(remaining_samples)), 
-                                          replace=False)
+        print(f"\nProcessing {samples_needed} more samples...")
+        # Convert numpy indices to python int
+        selected_indices = [int(i) for i in np.random.choice(len(dataset), 
+                                                           size=min(samples_needed, len(dataset)), 
+                                                           replace=False)]
         
-        for batch_start in tqdm(range(0, len(selected_samples), BATCH_SIZE), 
+        for batch_start in tqdm(range(0, len(selected_indices), BATCH_SIZE), 
                                desc="Processing batches"):
-            batch_indices = selected_samples[batch_start:batch_start + BATCH_SIZE]
-            batch_samples = [remaining_samples[i][1] for i in batch_indices]
-            batch_prompts = [create_prompt(sample) for sample in batch_samples]
+            batch_end = min(batch_start + BATCH_SIZE, len(selected_indices))
+            batch_indices = selected_indices[batch_start:batch_end]
+            # Convert indices to int before accessing dataset
+            batch_samples = [dataset[int(i)] for i in batch_indices]
             
-            # Generate responses with increased max_new_tokens
-            inputs = tokenizer(batch_prompts, 
-                             return_tensors="pt", 
-                             padding=True, 
-                             truncation=True).to("cuda")
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=768,  # Increased from 512
-                temperature=0.8,
-                top_p=0.95,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id
-            )
+            batch_metrics = process_batch(model, tokenizer, batch_samples)
             
-            responses = [tokenizer.decode(output, skip_special_tokens=True) 
-                        for output in outputs]
+            # Print first response in batch
+            if batch_metrics:
+                print("\nSample from current batch:")
+                print(f"Numbers: {batch_metrics[0]['nums']}")
+                print(f"Target: {batch_metrics[0]['target']}")
+                print(f"Answer: {batch_metrics[0]['answer']}")
             
-            # Print first response in batch for monitoring
-            if len(responses) > 0:
-                print("\nSample response:")
-                print(responses[0][:500] + "..." if len(responses[0]) > 500 else responses[0])
-                
-            batch_metrics = [evaluate_response(response, sample) 
-                           for response, sample in zip(responses, batch_samples)]
             results.extend(batch_metrics)
-            
             save_results(results)
-            print(f"\nProcessed {len(results)}/{N} samples")
             
             if len(results) >= N:
                 break
