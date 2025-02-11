@@ -122,7 +122,7 @@ Overall Performance:
 - Correct Solutions: 627
 - Incorrect Solutions: 373
 
-trained_phi4_thinking
+trained_phi4_thinking GSM8k dataset
 === Summary === significant p-value
 Total Cases: 1000
 
