@@ -144,7 +144,13 @@ Evaluating Structured Thinking Prompts and Fine-tuning in Mathematical Expressio
 
 
 Abstract:
-We evaluate the effectiveness of structured thinking prompts and fine-tuning on mathematical reasoning tasks using the Phi-4 language model. Using a test set of 1000 arithmetic expression generation problems from the Countdown dataset, we demonstrate that incorporating explicit thinking steps significantly improves performance over direct generation (62.7% vs 9.8% success rate). Further improvements are achieved through fine-tuning while maintaining the thinking prompt structure, reaching 67.4% accuracy with statistical significance. Our results suggest that combining structured prompting with targeted fine-tuning can substantially enhance language models' mathematical reasoning capabilities.
+We evaluate the effectiveness of structured thinking prompts and fine-tuning/RL on mathematical reasoning tasks
+using the Phi-4 language model. Using a test set of 1000 arithmetic expression generation problems from
+the Countdown dataset, we demonstrate that incorporating explicit thinking steps significantly improves
+performance over direct generation (62.7% vs 9.8% success rate). Further improvements are achieved through
+fine-tuning while maintaining the thinking prompt structure, reaching 67.4% accuracy with statistical significance.
+Our results suggest that combining structured prompting with targeted fine-tuning can
+substantially enhance language models' mathematical reasoning capabilities.
 
 
 Key Points:
