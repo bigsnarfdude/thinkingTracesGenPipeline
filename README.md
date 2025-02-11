@@ -101,3 +101,34 @@ Round 1 Epoch1 SFT warm up
 
 
 
+
+
+##########
+baseline_phi4_no_thinking
+=== Summary ===
+Total Cases: 1000
+
+Overall Performance:
+- Success Rate: 
+- Correct Solutions: 
+- Incorrect Solutions: 
+
+baseline_phi4_thinking
+=== Summary ===
+Total Cases: 1000
+
+Overall Performance:
+- Success Rate: 62.7%
+- Correct Solutions: 627
+- Incorrect Solutions: 373
+
+trained_phi4_thinking
+=== Summary === significant p-value
+Total Cases: 1000
+
+Overall Performance:
+- Success Rate: 67.4%
+- Correct Solutions: 674
+- Incorrect Solutions: 326
+
+
