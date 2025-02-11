@@ -74,8 +74,9 @@ model = FastLanguageModel.get_peft_model(
     random_state=3407,
 )
 
-# Load the previously trained LoRA weights
-model.load_lora("path_to_your_previous_lora_weights/grpo_saved_lora")  # Update this path
+# Load the GSM8K trained LoRA weights
+gsm8k_lora_path = "/home/vincent/dev/thinking/training_logs/run_20250209_061540/grpo_saved_lora"
+model.load_lora(gsm8k_lora_path)
 
 # Modified system prompt for countdown tasks
 SYSTEM_PROMPT = """
@@ -198,8 +199,8 @@ training_args = GRPOConfig(
     num_generations=4,
     max_prompt_length=256,
     max_completion_length=128,
-    max_steps=250,
-    save_steps=250,
+    max_steps=2500,  # Increased to cover more of the dataset
+    save_steps=500,   # Save checkpoints more frequently
     max_grad_norm=0.1,
     report_to="none",
     output_dir=str(run_dir),
