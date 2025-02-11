@@ -102,7 +102,8 @@ Round 1 Epoch1 SFT warm up
 
 
 
-
+##########
+##########
 ##########
 baseline_phi4_no_thinking
 === Summary ===
@@ -130,6 +131,11 @@ Overall Performance:
 - Success Rate: 67.4%
 - Correct Solutions: 674
 - Incorrect Solutions: 326
+
+##########
+##########
+##########
+
 
 
 Title:
