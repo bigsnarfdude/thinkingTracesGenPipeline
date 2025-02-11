@@ -109,9 +109,9 @@ baseline_phi4_no_thinking
 Total Cases: 1000
 
 Overall Performance:
-- Success Rate: 
-- Correct Solutions: 
-- Incorrect Solutions: 
+- Success Rate: 9.80%
+- Correct Solutions: 98
+- Incorrect Solutions: 902
 
 baseline_phi4_thinking
 === Summary ===
