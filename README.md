@@ -114,6 +114,15 @@ Overall Performance:
 - Correct Solutions: 98
 - Incorrect Solutions: 902
 
+baseline_DeepScaleR-1.5B
+=== Summary ===
+Total Cases: 1000
+
+Overall Performance:
+- Success Rate:
+- Correct Solutions:
+- Incorrect Solutions:
+
 baseline_phi4_thinking
 === Summary ===
 Total Cases: 1000
