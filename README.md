@@ -119,9 +119,9 @@ baseline_DeepScaleR-1.5B
 Total Cases: 1000
 
 Overall Performance:
-- Success Rate: 35.60%
-- Correct Solutions: 356
-- Incorrect Solutions: 644
+- Success Rate: 42.50%
+- Correct Solutions: 425
+- Incorrect Solutions: 575
 
 
 baseline_phi4_thinking
