@@ -165,10 +165,10 @@ substantially enhance language models' mathematical reasoning capabilities.
 
 Key Points:
 
-Baseline performance (direct generation): 9.8% accuracy
-Thinking prompts improve performance by 6.4x
-RL with thinking prompts achieves 67.4% accuracy
-Statistically significant improvement over non-trained thinking prompts
+--- Baseline performance (direct generation): 9.8% accuracy
+--- Thinking prompts improve performance by 6.4x
+--- RL with thinking prompts achieves 67.4% accuracy
+--- Statistically significant improvement over non-trained thinking prompts
 
 The full study examines the generation of valid arithmetic expressions using a fixed set of numbers to reach target values, providing insights into how language models can be guided to better handle constrained mathematical tasks through prompting and training strategies.
 
