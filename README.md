@@ -143,6 +143,12 @@ Overall Performance:
 - Incorrect Solutions: 326
 
 ##########
+
+Model Comparison:
+                                   model  accuracy  correct_count  total_questions
+mlx-community/Qwen2.5-7B  -Instruct-4bit  0.859742           1134             1319
+mlx-community/Qwen2.5-1.5B-Instruct-4bit  0.601971            794             1319
+mlx-community/Qwen2.5-0.5B-Instruct-4bit  0.310842            410             1319
 ##########
 ##########
 
