@@ -1,6 +1,6 @@
 # ThinkingTracesGenPipeline
 
-This repository contains the implementation of the **ThinkingTracesGenPipeline**, designed to generate, train, and evaluate responses with iterative improvements using SFT and GRPO/PPO techniques. The pipeline involves multiple rounds of fine-tuning, RL, and quality assessments.
+This repository contains the implementation of the **ThinkingTracesGenPipeline**, designed to generate, train, and evaluate responses with iterative improvements using SFT and GRPO/PPO techniques. The pipeline involves multiple rounds of fine-tuning, RL, and quality assessments. 
 
 Link to an open R1 experiment: https://huggingface.co/blog/open-r1
 
