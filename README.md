@@ -155,6 +155,7 @@ mlx Qwen2.5-Math-7B-Instruct-4bit         0.91812            1211             13
 mlx-community/Qwen2.5-14B-Instruct-8bit   0.849128           1120             1319   84.91%
 mlx-community/phi-4-4bit                  0.862017           1137             1319   86.20%
 mlx-community/phi-4-8bit                  0.868082           1145             1319   86.80%
+mlx-community/Phi-4-mini-instruct-4bit    0.589841            778             1319
 ##########
 ##########
 
